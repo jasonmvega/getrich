@@ -6,32 +6,36 @@ from pathlib import Path
 
 # --- Load ENV ---
 env_path = Path(r"C:\Users\S1746017\Downloads\getrich\.env")
-with env_path.open() as f:
-    for line in f:
-        if "=" in line:
-            key, value = line.strip().split("=", 1)
-            os.environ[key] = value
+if env_path.exists():
+    with env_path.open() as f:
+        for line in f:
+            if "=" in line:
+                key, value = line.strip().split("=", 1)
+                os.environ[key] = value
 
-# --- Get URLs from ENV ---
-BASE_URL = os.environ.get("GETRICH_BASE_URL")
-DATA_URL = os.environ.get("GETRICH_DATA_URL")
-
-# Verify environment variables
-if not BASE_URL or not DATA_URL:
-    raise ValueError("BASE_URL or DATA_URL not set in .env")
-print("BASE_URL =", BASE_URL)
-print("DATA_URL =", DATA_URL)
-
+# --- Fallback URLs if ENV missing ---
+BASE_URL = os.environ.get("GETRICH_BASE_URL", "https://paper-api.alpaca.markets")
+DATA_URL = os.environ.get("GETRICH_DATA_URL", "https://data.alpaca.markets")
 API_KEY = os.environ.get("GETRICH_API_KEY")
 API_SECRET = os.environ.get("GETRICH_API_SECRET")
 
+# --- Verify ---
+print("BASE_URL =", BASE_URL)
+print("DATA_URL =", DATA_URL)
+
+if not API_KEY or not API_SECRET:
+    raise ValueError("API_KEY or API_SECRET not set in .env")
+
+# --- Helper ---
+def average(lst):
+    return sum(lst) / len(lst)
+
 # --- Get historical prices ---
 def get_historical_prices(symbol, limit=300):
-    end = datetime.now(timezone.utc)
+    end = datetime.now(timezone.utc).replace(microsecond=0)
     start = end - timedelta(days=10)
-
     url = (f"{DATA_URL}/v2/stocks/{symbol}/bars?"
-           f"timeframe=1Min&start={start.isoformat()}&end={end.isoformat()}&limit={limit}")
+           f"timeframe=1Min&start={start.isoformat()}Z&end={end.isoformat()}Z&limit={limit}")
 
     headers = {
         "APCA-API-KEY-ID": API_KEY,
@@ -99,10 +103,6 @@ def send_order(symbol, qty, side):
     except Exception as e:
         print(f"Error placing {side} order:")
         print(e)
-
-# --- Helper ---
-def average(lst):
-    return sum(lst) / len(lst)
 
 # --- Trading Logic ---
 def trade(symbol, prices_list):
