@@ -1,24 +1,29 @@
 import os
 import urllib.request
 import json
-from datetime import datetime, timedelta, timezone  # updated
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 # --- Load ENV ---
-def load_env():
-    env_path = r"C:\Users\S1746017\Downloads\getrich\.env"
-    
-    with open(env_path) as f:
-        for line in f:
-            if "=" in line:
-                key, value = line.strip().split("=", 1)
-                os.environ[key] = value
+env_path = Path(r"C:\Users\S1746017\Downloads\getrich\.env")
+with env_path.open() as f:
+    for line in f:
+        if "=" in line:
+            key, value = line.strip().split("=", 1)
+            os.environ[key] = value
 
-load_env()
+# --- Get URLs from ENV ---
+BASE_URL = os.environ.get("GETRICH_BASE_URL")
+DATA_URL = os.environ.get("GETRICH_DATA_URL")
+
+# Verify environment variables
+if not BASE_URL or not DATA_URL:
+    raise ValueError("BASE_URL or DATA_URL not set in .env")
+print("BASE_URL =", BASE_URL)
+print("DATA_URL =", DATA_URL)
 
 API_KEY = os.environ.get("GETRICH_API_KEY")
 API_SECRET = os.environ.get("GETRICH_API_SECRET")
-BASE_URL = os.environ.get("GETRICH_BASE_URL")  # trading endpoints
-DATA_URL = os.environ.get("GETRICH_DATA_URL")  # market data endpoints
 
 # --- Get historical prices ---
 def get_historical_prices(symbol, limit=300):
@@ -42,26 +47,22 @@ def get_historical_prices(symbol, limit=300):
 # --- Get latest price ---
 def get_price(symbol):
     url = DATA_URL + f"/v2/stocks/{symbol}/quotes/latest"
-
     headers = {
         "APCA-API-KEY-ID": API_KEY,
         "APCA-API-SECRET-KEY": API_SECRET
     }
-
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req) as response:
         data = json.loads(response.read().decode())
-        return data["quote"]["ap"]  # ask price
+        return data["quote"]["ap"]
 
 # --- Get current position ---
 def get_position(symbol):
     url = BASE_URL + f"/v2/positions/{symbol}"
-
     headers = {
         "APCA-API-KEY-ID": API_KEY,
         "APCA-API-SECRET-KEY": API_SECRET
     }
-
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req) as response:
