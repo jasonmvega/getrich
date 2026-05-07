@@ -1,0 +1,25 @@
+name: Run Trading Bot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run trading script
+        env:
+          GETRICH_API_KEY: ${{ secrets.GETRICH_API_KEY }}
+          GETRICH_API_SECRET: ${{ secrets.GETRICH_API_SECRET }}
+          GETRICH_BASE_URL: ${{ secrets.GETRICH_BASE_URL }}
+          GETRICH_DATA_URL: ${{ secrets.GETRICH_DATA_URL }}
+        run: python getrich/trade.py
