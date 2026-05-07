@@ -22,4 +22,5 @@ jobs:
           GETRICH_API_SECRET: ${{ secrets.GETRICH_API_SECRET }}
           GETRICH_BASE_URL: ${{ secrets.GETRICH_BASE_URL }}
           GETRICH_DATA_URL: ${{ secrets.GETRICH_DATA_URL }}
-        run: python getrich/trade.py
+        run: python trade.py
+        working-directory: getrich
