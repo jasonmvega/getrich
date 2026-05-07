@@ -3,42 +3,47 @@ import urllib.request
 import urllib.error
 import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-# --- Load ENV ---
-env_path = Path(r"C:\Users\S1746017\Downloads\getrich\.env")
-if env_path.exists():
-    with env_path.open() as f:
-        for line in f:
-            if "=" in line:
-                key, value = line.strip().split("=", 1)
-                os.environ[key] = value
+# --- ENV VARIABLES ---
+BASE_URL = os.environ.get(
+    "GETRICH_BASE_URL",
+    "https://paper-api.alpaca.markets"
+)
 
-# --- Fallback URLs if ENV missing ---
-BASE_URL = os.environ.get("GETRICH_BASE_URL", "https://paper-api.alpaca.markets")
-DATA_URL = os.environ.get("GETRICH_DATA_URL", "https://data.alpaca.markets")
+DATA_URL = os.environ.get(
+    "GETRICH_DATA_URL",
+    "https://data.alpaca.markets"
+)
+
 API_KEY = os.environ.get("GETRICH_API_KEY")
 API_SECRET = os.environ.get("GETRICH_API_SECRET")
 
-# --- Verify ---
+# --- VERIFY ---
 print("BASE_URL =", BASE_URL)
 print("DATA_URL =", DATA_URL)
 
 if not API_KEY or not API_SECRET:
-    raise ValueError("API_KEY or API_SECRET not set in .env")
+    raise ValueError("API_KEY or API_SECRET not set")
 
-# --- Helper ---
+# --- HELPER ---
 def average(lst):
     return sum(lst) / len(lst)
 
-# --- Get historical prices ---
+# --- GET HISTORICAL PRICES ---
 def get_historical_prices(symbol, limit=300):
     end = datetime.now(timezone.utc).replace(microsecond=0)
-    start = end - timedelta(days=10)
-    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    start = end - timedelta(days=30)
+
+    # Proper RFC3339 timestamps
+    start_str = start.isoformat().replace("+00:00", "Z")
+    end_str = end.isoformat().replace("+00:00", "Z")
+
     url = (
         f"{DATA_URL}/v2/stocks/{symbol}/bars"
-        f"?timeframe=1Min&start={start.strftime(fmt)}&end={end.strftime(fmt)}&limit={limit}"
+        f"?timeframe=1Min"
+        f"&start={start_str}"
+        f"&end={end_str}"
+        f"&limit={limit}"
     )
 
     print(f"Requesting bars URL: {url}")
@@ -49,54 +54,73 @@ def get_historical_prices(symbol, limit=300):
     }
 
     req = urllib.request.Request(url, headers=headers)
+
     try:
         with urllib.request.urlopen(req) as response:
             data = json.loads(response.read().decode())
             bars = data.get("bars", [])
-            return [bar["c"] for bar in bars]  # closing prices
+
+            print(f"Loaded {len(bars)} historical bars")
+
+            return [bar["c"] for bar in bars]
+
     except urllib.error.HTTPError as e:
         body = e.read().decode()
-        print(f"HTTPError {e.code} fetching bars: {body}")
+        print(f"HTTPError {e.code} fetching bars:")
+        print(body)
         raise
 
-# --- Get latest price ---
+# --- GET LATEST PRICE ---
 def get_price(symbol):
-    url = DATA_URL + f"/v2/stocks/{symbol}/quotes/latest"
+    url = f"{DATA_URL}/v2/stocks/{symbol}/quotes/latest"
+
     print(f"Requesting latest quote URL: {url}")
+
     headers = {
         "APCA-API-KEY-ID": API_KEY,
         "APCA-API-SECRET-KEY": API_SECRET
     }
+
     req = urllib.request.Request(url, headers=headers)
+
     try:
         with urllib.request.urlopen(req) as response:
             data = json.loads(response.read().decode())
             return data["quote"]["ap"]
+
     except urllib.error.HTTPError as e:
         body = e.read().decode()
-        print(f"HTTPError {e.code} fetching quote: {body}")
+        print(f"HTTPError {e.code} fetching quote:")
+        print(body)
         raise
 
-# --- Get current position ---
+# --- GET CURRENT POSITION ---
 def get_position(symbol):
-    url = BASE_URL + f"/v2/positions/{symbol}"
+    url = f"{BASE_URL}/v2/positions/{symbol}"
+
     headers = {
         "APCA-API-KEY-ID": API_KEY,
         "APCA-API-SECRET-KEY": API_SECRET
     }
+
     req = urllib.request.Request(url, headers=headers)
+
     try:
         with urllib.request.urlopen(req) as response:
             data = json.loads(response.read().decode())
+
             qty = int(float(data["qty"]))
             avg_price = float(data["avg_entry_price"])
-            return qty, avg_price
-    except urllib.error.HTTPError:
-        return 0, None  # no position exists
 
-# --- Send order ---
+            return qty, avg_price
+
+    except urllib.error.HTTPError:
+        return 0, None
+
+# --- SEND ORDER ---
 def send_order(symbol, qty, side):
-    url = BASE_URL + "/v2/orders"
+    url = f"{BASE_URL}/v2/orders"
+
     data = json.dumps({
         "symbol": symbol,
         "qty": qty,
@@ -111,19 +135,28 @@ def send_order(symbol, qty, side):
         "Content-Type": "application/json"
     }
 
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers=headers,
+        method="POST"
+    )
+
     try:
         with urllib.request.urlopen(req) as response:
             result = response.read().decode()
+
             print(f"{side.upper()} order success:")
             print(result)
+
     except Exception as e:
         print(f"Error placing {side} order:")
         print(e)
 
-# --- Trading Logic ---
+# --- TRADING LOGIC ---
 def trade(symbol, prices_list):
     shares_held, buy_price = get_position(symbol)
+
     print(f"Current position: {shares_held} shares @ {buy_price}")
 
     if len(prices_list) < 250:
@@ -139,11 +172,15 @@ def trade(symbol, prices_list):
             send_order(symbol, shares_held, "sell")
             return
 
-    # --- Moving averages ---
+    # --- MOVING AVERAGES ---
     short_ma = average(prices_list[-50:])
-    long_ma  = average(prices_list[-250:])
+    long_ma = average(prices_list[-250:])
+
     prev_short = average(prices_list[-51:-1])
-    prev_long  = average(prices_list[-251:-1])
+    prev_long = average(prices_list[-251:-1])
+
+    print(f"Short MA: {short_ma}")
+    print(f"Long MA: {long_ma}")
 
     # --- BUY ---
     if prev_short <= prev_long and short_ma > long_ma and shares_held == 0:
@@ -155,7 +192,7 @@ def trade(symbol, prices_list):
         print("SELL signal (death cross)")
         send_order(symbol, shares_held, "sell")
 
-    # --- Weak trend ---
+    # --- WEAK TREND ---
     elif prev_long > long_ma:
         print("Weak trend → small BUY (5 shares)")
         send_order(symbol, 5, "buy")
@@ -166,14 +203,18 @@ def trade(symbol, prices_list):
 # --- RUN ONCE ---
 if __name__ == "__main__":
     SYMBOL = "AAPL"
+
     try:
         prices = get_historical_prices(SYMBOL)
+
         latest_price = get_price(SYMBOL)
+
         prices.append(latest_price)
 
         print(f"Latest price: {latest_price}")
         print(f"Loaded {len(prices)} prices")
 
         trade(SYMBOL, prices)
+
     except Exception as e:
         print("Error:", e)
