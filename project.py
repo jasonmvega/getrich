@@ -35,7 +35,7 @@ def get_historical_prices(symbol, limit=300):
     end = datetime.now(timezone.utc).replace(microsecond=0)
     start = end - timedelta(days=10)
     url = (f"{DATA_URL}/v2/stocks/{symbol}/bars?"
-           f"timeframe=1Min&start={start.isoformat()}Z&end={end.isoformat()}Z&limit={limit}")
+           f"timeframe=1Min&start={start.isoformat()}&end={end.isoformat()}&limit={limit}")
 
     headers = {
         "APCA-API-KEY-ID": API_KEY,
