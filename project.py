@@ -1,5 +1,6 @@
 import os
 import urllib.request
+import urllib.error
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,28 +38,41 @@ def get_historical_prices(symbol, limit=300):
     url = (f"{DATA_URL}/v2/stocks/{symbol}/bars?"
            f"timeframe=1Min&start={start.isoformat()}&end={end.isoformat()}&limit={limit}")
 
+    print(f"Requesting bars URL: {url}")
+
     headers = {
         "APCA-API-KEY-ID": API_KEY,
         "APCA-API-SECRET-KEY": API_SECRET
     }
 
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req) as response:
-        data = json.loads(response.read().decode())
-        bars = data.get("bars", [])
-        return [bar["c"] for bar in bars]  # closing prices
+    try:
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            bars = data.get("bars", [])
+            return [bar["c"] for bar in bars]  # closing prices
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        print(f"HTTPError {e.code} fetching bars: {body}")
+        raise
 
 # --- Get latest price ---
 def get_price(symbol):
     url = DATA_URL + f"/v2/stocks/{symbol}/quotes/latest"
+    print(f"Requesting latest quote URL: {url}")
     headers = {
         "APCA-API-KEY-ID": API_KEY,
         "APCA-API-SECRET-KEY": API_SECRET
     }
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req) as response:
-        data = json.loads(response.read().decode())
-        return data["quote"]["ap"]
+    try:
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            return data["quote"]["ap"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        print(f"HTTPError {e.code} fetching quote: {body}")
+        raise
 
 # --- Get current position ---
 def get_position(symbol):
