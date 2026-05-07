@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Run trading script
+      - name: Run trading bot
         env:
           GETRICH_API_KEY: ${{ secrets.GETRICH_API_KEY }}
           GETRICH_API_SECRET: ${{ secrets.GETRICH_API_SECRET }}
