@@ -35,8 +35,11 @@ def average(lst):
 def get_historical_prices(symbol, limit=300):
     end = datetime.now(timezone.utc).replace(microsecond=0)
     start = end - timedelta(days=10)
-    url = (f"{DATA_URL}/v2/stocks/{symbol}/bars?"
-           f"timeframe=1Min&start={start.isoformat()}&end={end.isoformat()}&limit={limit}")
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    url = (
+        f"{DATA_URL}/v2/stocks/{symbol}/bars"
+        f"?timeframe=1Min&start={start.strftime(fmt)}&end={end.strftime(fmt)}&limit={limit}"
+    )
 
     print(f"Requesting bars URL: {url}")
 
