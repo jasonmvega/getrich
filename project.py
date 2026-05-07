@@ -4,7 +4,9 @@ import urllib.error
 import json
 from datetime import datetime, timedelta, timezone
 
-# --- ENV VARIABLES ---
+# =========================
+# ENV VARIABLES
+# =========================
 BASE_URL = os.environ.get(
     "GETRICH_BASE_URL",
     "https://paper-api.alpaca.markets"
@@ -18,29 +20,37 @@ DATA_URL = os.environ.get(
 API_KEY = os.environ.get("GETRICH_API_KEY")
 API_SECRET = os.environ.get("GETRICH_API_SECRET")
 
-# --- VERIFY ---
+# =========================
+# VERIFY ENV
+# =========================
 print("BASE_URL =", BASE_URL)
 print("DATA_URL =", DATA_URL)
 
 if not API_KEY or not API_SECRET:
     raise ValueError("API_KEY or API_SECRET not set")
 
-# --- HELPER ---
+# =========================
+# HELPERS
+# =========================
 def average(lst):
     return sum(lst) / len(lst)
 
-# --- GET HISTORICAL PRICES ---
+# =========================
+# GET HISTORICAL PRICES
+# =========================
 def get_historical_prices(symbol, limit=300):
+
     end = datetime.now(timezone.utc).replace(microsecond=0)
     start = end - timedelta(days=30)
 
-    # Proper RFC3339 timestamps
+    # RFC3339 format
     start_str = start.isoformat().replace("+00:00", "Z")
     end_str = end.isoformat().replace("+00:00", "Z")
 
     url = (
         f"{DATA_URL}/v2/stocks/{symbol}/bars"
         f"?timeframe=1Min"
+        f"&feed=iex"
         f"&start={start_str}"
         f"&end={end_str}"
         f"&limit={limit}"
@@ -57,7 +67,9 @@ def get_historical_prices(symbol, limit=300):
 
     try:
         with urllib.request.urlopen(req) as response:
+
             data = json.loads(response.read().decode())
+
             bars = data.get("bars", [])
 
             print(f"Loaded {len(bars)} historical bars")
@@ -65,14 +77,23 @@ def get_historical_prices(symbol, limit=300):
             return [bar["c"] for bar in bars]
 
     except urllib.error.HTTPError as e:
+
         body = e.read().decode()
+
         print(f"HTTPError {e.code} fetching bars:")
         print(body)
+
         raise
 
-# --- GET LATEST PRICE ---
+# =========================
+# GET LATEST PRICE
+# =========================
 def get_price(symbol):
-    url = f"{DATA_URL}/v2/stocks/{symbol}/quotes/latest"
+
+    url = (
+        f"{DATA_URL}/v2/stocks/"
+        f"{symbol}/quotes/latest?feed=iex"
+    )
 
     print(f"Requesting latest quote URL: {url}")
 
@@ -85,17 +106,25 @@ def get_price(symbol):
 
     try:
         with urllib.request.urlopen(req) as response:
+
             data = json.loads(response.read().decode())
+
             return data["quote"]["ap"]
 
     except urllib.error.HTTPError as e:
+
         body = e.read().decode()
+
         print(f"HTTPError {e.code} fetching quote:")
         print(body)
+
         raise
 
-# --- GET CURRENT POSITION ---
+# =========================
+# GET CURRENT POSITION
+# =========================
 def get_position(symbol):
+
     url = f"{BASE_URL}/v2/positions/{symbol}"
 
     headers = {
@@ -107,6 +136,7 @@ def get_position(symbol):
 
     try:
         with urllib.request.urlopen(req) as response:
+
             data = json.loads(response.read().decode())
 
             qty = int(float(data["qty"]))
@@ -117,8 +147,11 @@ def get_position(symbol):
     except urllib.error.HTTPError:
         return 0, None
 
-# --- SEND ORDER ---
+# =========================
+# SEND ORDER
+# =========================
 def send_order(symbol, qty, side):
+
     url = f"{BASE_URL}/v2/orders"
 
     data = json.dumps({
@@ -144,17 +177,22 @@ def send_order(symbol, qty, side):
 
     try:
         with urllib.request.urlopen(req) as response:
+
             result = response.read().decode()
 
             print(f"{side.upper()} order success:")
             print(result)
 
     except Exception as e:
+
         print(f"Error placing {side} order:")
         print(e)
 
-# --- TRADING LOGIC ---
+# =========================
+# TRADING LOGIC
+# =========================
 def trade(symbol, prices_list):
+
     shares_held, buy_price = get_position(symbol)
 
     print(f"Current position: {shares_held} shares @ {buy_price}")
@@ -165,14 +203,22 @@ def trade(symbol, prices_list):
 
     current_price = prices_list[-1]
 
-    # --- SELL ASAP (10% gain) ---
+    # =========================
+    # SELL ASAP (10% GAIN)
+    # =========================
     if shares_held > 0 and buy_price is not None:
+
         if current_price >= buy_price * 1.10:
+
             print("SELL ASAP triggered (10% gain)")
+
             send_order(symbol, shares_held, "sell")
+
             return
 
-    # --- MOVING AVERAGES ---
+    # =========================
+    # MOVING AVERAGES
+    # =========================
     short_ma = average(prices_list[-50:])
     long_ma = average(prices_list[-250:])
 
@@ -182,29 +228,54 @@ def trade(symbol, prices_list):
     print(f"Short MA: {short_ma}")
     print(f"Long MA: {long_ma}")
 
-    # --- BUY ---
-    if prev_short <= prev_long and short_ma > long_ma and shares_held == 0:
+    # =========================
+    # BUY SIGNAL
+    # =========================
+    if (
+        prev_short <= prev_long
+        and short_ma > long_ma
+        and shares_held == 0
+    ):
+
         print("BUY signal (golden cross)")
+
         send_order(symbol, 100, "buy")
 
-    # --- SELL ---
-    elif prev_short >= prev_long and short_ma < long_ma and shares_held > 0:
+    # =========================
+    # SELL SIGNAL
+    # =========================
+    elif (
+        prev_short >= prev_long
+        and short_ma < long_ma
+        and shares_held > 0
+    ):
+
         print("SELL signal (death cross)")
+
         send_order(symbol, shares_held, "sell")
 
-    # --- WEAK TREND ---
+    # =========================
+    # WEAK TREND
+    # =========================
     elif prev_long > long_ma:
+
         print("Weak trend → small BUY (5 shares)")
+
         send_order(symbol, 5, "buy")
 
     else:
+
         print("No action taken")
 
-# --- RUN ONCE ---
+# =========================
+# MAIN
+# =========================
 if __name__ == "__main__":
+
     SYMBOL = "AAPL"
 
     try:
+
         prices = get_historical_prices(SYMBOL)
 
         latest_price = get_price(SYMBOL)
@@ -217,4 +288,5 @@ if __name__ == "__main__":
         trade(SYMBOL, prices)
 
     except Exception as e:
+
         print("Error:", e)
