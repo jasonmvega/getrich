@@ -21,6 +21,20 @@ API_KEY = os.environ.get("GETRICH_API_KEY")
 API_SECRET = os.environ.get("GETRICH_API_SECRET")
 
 # =========================
+# SYMBOLS TO TRADE
+# =========================
+SYMBOLS = [
+    "AAPL",   # Apple
+    "MSFT",   # Microsoft
+    "GOOGL",  # Google
+    "AMZN",   # Amazon
+    "NVDA",   # Nvidia
+    "TSLA",   # Tesla
+    "META",   # Meta
+    "SPY",    # S&P 500 ETF
+]
+
+# =========================
 # VERIFY ENV
 # =========================
 print("BASE_URL =", BASE_URL)
@@ -56,7 +70,7 @@ def get_historical_prices(symbol, limit=300):
         f"&limit={limit}"
     )
 
-    print(f"Requesting bars URL: {url}")
+    print(f"  Requesting bars URL: {url}")
 
     headers = {
         "APCA-API-KEY-ID": API_KEY,
@@ -72,7 +86,7 @@ def get_historical_prices(symbol, limit=300):
 
             bars = data.get("bars", [])
 
-            print(f"Loaded {len(bars)} historical bars")
+            print(f"  Loaded {len(bars)} historical bars")
 
             return [bar["c"] for bar in bars]
 
@@ -80,7 +94,7 @@ def get_historical_prices(symbol, limit=300):
 
         body = e.read().decode()
 
-        print(f"HTTPError {e.code} fetching bars:")
+        print(f"  HTTPError {e.code} fetching bars:")
         print(body)
 
         raise
@@ -95,7 +109,7 @@ def get_price(symbol):
         f"{symbol}/quotes/latest?feed=iex"
     )
 
-    print(f"Requesting latest quote URL: {url}")
+    print(f"  Requesting latest quote URL: {url}")
 
     headers = {
         "APCA-API-KEY-ID": API_KEY,
@@ -115,7 +129,7 @@ def get_price(symbol):
 
         body = e.read().decode()
 
-        print(f"HTTPError {e.code} fetching quote:")
+        print(f"  HTTPError {e.code} fetching quote:")
         print(body)
 
         raise
@@ -180,12 +194,12 @@ def send_order(symbol, qty, side):
 
             result = response.read().decode()
 
-            print(f"{side.upper()} order success:")
-            print(result)
+            print(f"  {side.upper()} order success:")
+            print(f"  {result}")
 
     except Exception as e:
 
-        print(f"Error placing {side} order:")
+        print(f"  Error placing {side} order:")
         print(e)
 
 # =========================
@@ -195,10 +209,10 @@ def trade(symbol, prices_list):
 
     shares_held, buy_price = get_position(symbol)
 
-    print(f"Current position: {shares_held} shares @ {buy_price}")
+    print(f"  Current position: {shares_held} shares @ {buy_price}")
 
     if len(prices_list) < 250:
-        print("Not enough data to trade")
+        print(f"  Not enough data to trade ({len(prices_list)} bars, need 250)")
         return
 
     current_price = prices_list[-1]
@@ -210,7 +224,7 @@ def trade(symbol, prices_list):
 
         if current_price >= buy_price * 1.10:
 
-            print("SELL ASAP triggered (10% gain)")
+            print("  SELL ASAP triggered (10% gain)")
 
             send_order(symbol, shares_held, "sell")
 
@@ -225,8 +239,8 @@ def trade(symbol, prices_list):
     prev_short = average(prices_list[-51:-1])
     prev_long = average(prices_list[-251:-1])
 
-    print(f"Short MA: {short_ma}")
-    print(f"Long MA: {long_ma}")
+    print(f"  Short MA: {short_ma:.4f}")
+    print(f"  Long MA:  {long_ma:.4f}")
 
     # =========================
     # BUY SIGNAL
@@ -237,7 +251,7 @@ def trade(symbol, prices_list):
         and shares_held == 0
     ):
 
-        print("BUY signal (golden cross)")
+        print("  BUY signal (golden cross)")
 
         send_order(symbol, 100, "buy")
 
@@ -250,7 +264,7 @@ def trade(symbol, prices_list):
         and shares_held > 0
     ):
 
-        print("SELL signal (death cross)")
+        print("  SELL signal (death cross)")
 
         send_order(symbol, shares_held, "sell")
 
@@ -259,34 +273,56 @@ def trade(symbol, prices_list):
     # =========================
     elif prev_long > long_ma:
 
-        print("Weak trend → small BUY (5 shares)")
+        print("  Weak trend → small BUY (5 shares)")
 
         send_order(symbol, 5, "buy")
 
     else:
 
-        print("No action taken")
+        print("  No action taken")
 
 # =========================
 # MAIN
 # =========================
 if __name__ == "__main__":
 
-    SYMBOL = "AAPL"
+    results = {"success": [], "failed": []}
 
-    try:
+    for symbol in SYMBOLS:
 
-        prices = get_historical_prices(SYMBOL)
+        print()
+        print(f"{'='*40}")
+        print(f"  Processing: {symbol}")
+        print(f"{'='*40}")
 
-        latest_price = get_price(SYMBOL)
+        try:
 
-        prices.append(latest_price)
+            prices = get_historical_prices(symbol)
 
-        print(f"Latest price: {latest_price}")
-        print(f"Loaded {len(prices)} prices")
+            latest_price = get_price(symbol)
 
-        trade(SYMBOL, prices)
+            prices.append(latest_price)
 
-    except Exception as e:
+            print(f"  Latest price: {latest_price}")
+            print(f"  Total bars loaded: {len(prices)}")
 
-        print("Error:", e)
+            trade(symbol, prices)
+
+            results["success"].append(symbol)
+
+        except Exception as e:
+
+            print(f"  Error processing {symbol}: {e}")
+
+            results["failed"].append(symbol)
+
+    # =========================
+    # SUMMARY
+    # =========================
+    print()
+    print("=" * 40)
+    print("  RUN SUMMARY")
+    print("=" * 40)
+    print(f"  Succeeded: {', '.join(results['success']) or 'None'}")
+    print(f"  Failed:    {', '.join(results['failed']) or 'None'}")
+    print("=" * 40)
