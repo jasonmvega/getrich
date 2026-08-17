@@ -4,8 +4,10 @@ import urllib.request
 import urllib.error
 import json
 from datetime import datetime, timedelta, timezone
+from database_manager import create_database, save_price
 
 load_dotenv()
+create_database()
 
 # =========================
 # ENV VARIABLES
@@ -83,7 +85,7 @@ def get_historical_prices(symbol, limit=300):
     req = urllib.request.Request(url, headers=headers)
 
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=15) as response:
 
             data = json.loads(response.read().decode())
 
@@ -91,6 +93,19 @@ def get_historical_prices(symbol, limit=300):
 
             print(f"  Loaded {len(bars)} historical bars")
 
+            # =========================
+            # SAVE HISTORICAL DATA
+            # =========================
+            for bar in bars:
+                save_price(
+                    ticker=symbol,
+                    recorded_at=str(bar["t"]),
+                    price=float(bar["c"]),
+                )
+
+            print(f"  Saved {len(bars)} bars to database")
+
+            # Return the same price list used by the existing strategy
             return [bar["c"] for bar in bars]
 
     except urllib.error.HTTPError as e:
@@ -99,6 +114,18 @@ def get_historical_prices(symbol, limit=300):
 
         print(f"  HTTPError {e.code} fetching bars:")
         print(body)
+
+        raise
+
+    except urllib.error.URLError as e:
+
+        print(f"  URL error fetching bars: {e}")
+
+        raise
+
+    except TimeoutError:
+
+        print(f"  Timeout fetching historical bars for {symbol}")
 
         raise
 
@@ -122,7 +149,7 @@ def get_price(symbol):
     req = urllib.request.Request(url, headers=headers)
 
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=15) as response:
 
             data = json.loads(response.read().decode())
 
@@ -134,6 +161,18 @@ def get_price(symbol):
 
         print(f"  HTTPError {e.code} fetching quote:")
         print(body)
+
+        raise
+
+    except urllib.error.URLError as e:
+
+        print(f"  URL error fetching quote: {e}")
+
+        raise
+
+    except TimeoutError:
+
+        print(f"  Timeout fetching latest quote for {symbol}")
 
         raise
 
@@ -152,7 +191,7 @@ def get_position(symbol):
     req = urllib.request.Request(url, headers=headers)
 
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=15) as response:
 
             data = json.loads(response.read().decode())
 
@@ -193,7 +232,7 @@ def send_order(symbol, qty, side):
     )
 
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=15) as response:
 
             result = response.read().decode()
 
