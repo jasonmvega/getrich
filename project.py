@@ -1,8 +1,11 @@
 import os
+from dotenv import load_dotenv
 import urllib.request
 import urllib.error
 import json
 from datetime import datetime, timedelta, timezone
+
+load_dotenv()
 
 # =========================
 # ENV VARIABLES
@@ -17,8 +20,8 @@ DATA_URL = os.environ.get(
     "https://data.alpaca.markets"
 )
 
-API_KEY = os.environ.get("GETRICH_API_KEY")
-API_SECRET = os.environ.get("GETRICH_API_SECRET")
+API_KEY = os.environ.get("GETRICH_API_KEY") or os.environ.get("API_KEY")
+API_SECRET = os.environ.get("GETRICH_API_SECRET") or os.environ.get("API_SECRET")
 
 # =========================
 # SYMBOLS TO TRADE
