@@ -46,11 +46,18 @@ LIMIT 10;
 # """
 
 # QUERY 6: Find the average price for each ticker.
+# query = """
+# SELECT ticker, AVG(price)
+# FROM prices
+# GROUP BY ticker
+# ORDER BY AVG(price) DESC;
+# """
+
+# QUERY 7: Show average price for AAPL.
 query = """
-SELECT ticker, AVG(price)
+SELECT AVG(price)
 FROM prices
-GROUP BY ticker
-ORDER BY AVG(price) DESC;
+WHERE ticker = 'AAPL';
 """
 
 rows = connection.execute(query).fetchall()

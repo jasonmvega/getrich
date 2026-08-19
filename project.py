@@ -57,7 +57,7 @@ def average(lst):
 # =========================
 # GET HISTORICAL PRICES
 # =========================
-def get_historical_prices(symbol, limit=300):
+def get_historical_prices(symbol):
 
     end = datetime.now(timezone.utc).replace(microsecond=0)
     start = end - timedelta(days=30)
@@ -72,7 +72,6 @@ def get_historical_prices(symbol, limit=300):
         f"&feed=iex"
         f"&start={start_str}"
         f"&end={end_str}"
-        f"&limit={limit}"
     )
 
     print(f"  Requesting bars URL: {url}")
