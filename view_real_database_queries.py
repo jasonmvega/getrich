@@ -15,20 +15,20 @@ connection = sqlite3.connect("trading.db")
 
 # QUERY 2: Show only one ticker.
 # Change AAPL to a ticker that is actually in YOUR database.
-query = """
-SELECT id, ticker, recorded_at, price
-FROM prices
-WHERE ticker = 'AAPL'
-ORDER BY recorded_at;
-"""
+# query = """
+# SELECT id, ticker, recorded_at, price
+# FROM prices
+# WHERE ticker = 'AAPL'
+# ORDER BY recorded_at;
+# """
 
 # QUERY 3: Show the highest prices first.
-# query = """
-# SELECT ticker, recorded_at, price
-# FROM prices
-# ORDER BY price DESC
-# LIMIT 10;
-# """
+query = """
+SELECT ticker, recorded_at, price
+FROM prices
+ORDER BY price DESC
+LIMIT 10;
+"""
 
 # QUERY 4: Show only the ticker, date/time, and price.
 # query = """
@@ -37,6 +37,21 @@ ORDER BY recorded_at;
 # ORDER BY recorded_at DESC
 # LIMIT 10;
 # """
+
+# QUERY 5: Show only the ticker and price columns.
+# query = """
+# SELECT ticker, price
+# FROM prices
+# LIMIT 10;
+# """
+
+# QUERY 6: Find the average price for each ticker.
+query = """
+SELECT ticker, AVG(price)
+FROM prices
+GROUP BY ticker
+ORDER BY AVG(price) DESC;
+"""
 
 rows = connection.execute(query).fetchall()
 
