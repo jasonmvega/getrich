@@ -1,12 +1,10 @@
 import os
-from dotenv import load_dotenv
 import urllib.request
 import urllib.error
 import json
 from datetime import datetime, timedelta, timezone
 from database_manager import create_database, save_price
 
-load_dotenv()
 create_database()
 
 # =========================
