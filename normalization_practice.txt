@@ -1,0 +1,9 @@
+Messy table:
+ticker | company_name | trade_date | close | side | quantity | status
+
+Task:
+1. Identify repeated data.
+2. Identify update/delete/insert problems.
+3. Split into STOCKS, PRICES, and TRADES/SIGNALS.
+4. Label PK and FK.
+5. Explain which changes help move toward 1NF, 2NF, and 3NF.

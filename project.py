@@ -4,7 +4,7 @@ import urllib.request
 import urllib.error
 import json
 from datetime import datetime, timedelta, timezone
-from database_manager import create_database, save_price
+from database_manager import create_database, save_price, save_signal
 
 load_dotenv()
 create_database()
@@ -258,6 +258,9 @@ def trade(symbol, prices_list):
 
     current_price = prices_list[-1]
 
+    # Use one timestamp for the saved signal
+    current_time = datetime.now(timezone.utc).isoformat()
+
     # =========================
     # SELL ASAP (10% GAIN)
     # =========================
@@ -265,7 +268,17 @@ def trade(symbol, prices_list):
 
         if current_price >= buy_price * 1.10:
 
+            decision = "SELL"
+            reason = "10% gain target reached"
+
             print("  SELL ASAP triggered (10% gain)")
+
+            save_signal(
+                ticker=symbol,
+                recorded_at=current_time,
+                decision=decision,
+                reason=reason,
+            )
 
             send_order(symbol, shares_held, "sell")
 
@@ -292,7 +305,17 @@ def trade(symbol, prices_list):
         and shares_held == 0
     ):
 
+        decision = "BUY"
+        reason = "50-day moving average crossed above 250-day moving average"
+
         print("  BUY signal (golden cross)")
+
+        save_signal(
+            ticker=symbol,
+            recorded_at=current_time,
+            decision=decision,
+            reason=reason,
+        )
 
         send_order(symbol, 100, "buy")
 
@@ -305,7 +328,17 @@ def trade(symbol, prices_list):
         and shares_held > 0
     ):
 
+        decision = "SELL"
+        reason = "50-day moving average crossed below 250-day moving average"
+
         print("  SELL signal (death cross)")
+
+        save_signal(
+            ticker=symbol,
+            recorded_at=current_time,
+            decision=decision,
+            reason=reason,
+        )
 
         send_order(symbol, shares_held, "sell")
 
@@ -314,14 +347,36 @@ def trade(symbol, prices_list):
     # =========================
     elif prev_long > long_ma:
 
+        decision = "BUY"
+        reason = "Long-term moving average is declining, so strategy makes a small BUY"
+
         print("  Weak trend → small BUY (5 shares)")
+
+        save_signal(
+            ticker=symbol,
+            recorded_at=current_time,
+            decision=decision,
+            reason=reason,
+        )
 
         send_order(symbol, 5, "buy")
 
+    # =========================
+    # HOLD
+    # =========================
     else:
+
+        decision = "HOLD"
+        reason = "No trading condition was met"
 
         print("  No action taken")
 
+        save_signal(
+            ticker=symbol,
+            recorded_at=current_time,
+            decision=decision,
+            reason=reason,
+        )
 # =========================
 # MAIN
 # =========================
