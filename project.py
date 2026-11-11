@@ -3,7 +3,10 @@ import urllib.request
 import urllib.error
 import json
 from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
 from database_manager import create_database, save_price, save_signal
+
+load_dotenv()
 
 create_database()
 
@@ -52,27 +55,31 @@ if not API_KEY or not API_SECRET:
 def average(lst):
     return sum(lst) / len(lst)
 
+
 # =========================
-# GET HISTORICAL PRICES
+# GET HISTORICAL DAILY PRICES
 # =========================
 def get_historical_prices(symbol):
 
+    # Get about 400 calendar days of data
+    # This gives us enough trading days for the 250-day moving average.
     end = datetime.now(timezone.utc).replace(microsecond=0)
-    start = end - timedelta(days=30)
+    start = end - timedelta(days=400)
 
     # RFC3339 format
     start_str = start.isoformat().replace("+00:00", "Z")
     end_str = end.isoformat().replace("+00:00", "Z")
 
+    # Get ONE bar per trading day
     url = (
         f"{DATA_URL}/v2/stocks/{symbol}/bars"
-        f"?timeframe=1Min"
+        f"?timeframe=1Day"
         f"&feed=iex"
         f"&start={start_str}"
         f"&end={end_str}"
     )
 
-    print(f"  Requesting bars URL: {url}")
+    print(f"  Requesting daily bars URL: {url}")
 
     headers = {
         "APCA-API-KEY-ID": API_KEY,
@@ -88,7 +95,7 @@ def get_historical_prices(symbol):
 
             bars = data.get("bars", [])
 
-            print(f"  Loaded {len(bars)} historical bars")
+            print(f"  Loaded {len(bars)} historical daily bars")
 
             # =========================
             # SAVE HISTORICAL DATA
@@ -100,31 +107,32 @@ def get_historical_prices(symbol):
                     price=float(bar["c"]),
                 )
 
-            print(f"  Saved {len(bars)} bars to database")
+            print(f"  Saved {len(bars)} daily prices to database")
 
-            # Return the same price list used by the existing strategy
-            return [bar["c"] for bar in bars]
+            # Return the daily closing prices
+            return [float(bar["c"]) for bar in bars]
 
     except urllib.error.HTTPError as e:
 
         body = e.read().decode()
 
-        print(f"  HTTPError {e.code} fetching bars:")
+        print(f"  HTTPError {e.code} fetching daily bars:")
         print(body)
 
         raise
 
     except urllib.error.URLError as e:
 
-        print(f"  URL error fetching bars: {e}")
+        print(f"  URL error fetching daily bars for {symbol}: {e}")
 
         raise
 
     except TimeoutError:
 
-        print(f"  Timeout fetching historical bars for {symbol}")
+        print(f"  Timeout fetching historical daily bars for {symbol}")
 
         raise
+
 
 # =========================
 # GET LATEST PRICE
@@ -163,15 +171,16 @@ def get_price(symbol):
 
     except urllib.error.URLError as e:
 
-        print(f"  URL error fetching quote: {e}")
+        print(f"  URL error fetching latest quote for {symbol}: {e}")
 
         raise
 
     except TimeoutError:
 
-        print(f"  Timeout fetching latest quote for {symbol}")
+        print(f"  Timeout fetching latest price for {symbol}")
 
         raise
+
 
 # =========================
 # GET CURRENT POSITION
@@ -199,6 +208,7 @@ def get_position(symbol):
 
     except urllib.error.HTTPError:
         return 0, None
+
 
 # =========================
 # SEND ORDER
@@ -241,6 +251,7 @@ def send_order(symbol, qty, side):
         print(f"  Error placing {side} order:")
         print(e)
 
+
 # =========================
 # TRADING LOGIC
 # =========================
@@ -250,8 +261,14 @@ def trade(symbol, prices_list):
 
     print(f"  Current position: {shares_held} shares @ {buy_price}")
 
+    # Need at least 250 daily prices for the 250-day MA
     if len(prices_list) < 250:
-        print(f"  Not enough data to trade ({len(prices_list)} bars, need 250)")
+
+        print(
+            f"  Not enough data to trade "
+            f"({len(prices_list)} daily prices, need 250)"
+        )
+
         return
 
     current_price = prices_list[-1]
@@ -375,6 +392,8 @@ def trade(symbol, prices_list):
             decision=decision,
             reason=reason,
         )
+
+
 # =========================
 # MAIN
 # =========================
@@ -398,7 +417,7 @@ if __name__ == "__main__":
             prices.append(latest_price)
 
             print(f"  Latest price: {latest_price}")
-            print(f"  Total bars loaded: {len(prices)}")
+            print(f"  Total daily prices loaded: {len(prices)}")
 
             trade(symbol, prices)
 

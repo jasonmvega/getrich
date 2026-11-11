@@ -23,12 +23,12 @@ connection = sqlite3.connect("trading.db")
 # """
 
 # QUERY 3: Show the highest prices first.
-query = """
-SELECT ticker, recorded_at, price
-FROM prices
-ORDER BY price DESC
-LIMIT 10;
-"""
+# query = """
+# SELECT ticker, recorded_at, price
+# FROM prices
+# ORDER BY price DESC
+# LIMIT 10;
+# """
 
 # QUERY 4: Show only the ticker, date/time, and price.
 # query = """
