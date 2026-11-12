@@ -1,441 +1,127 @@
-import os
-import urllib.request
-import urllib.error
-import json
-from datetime import datetime, timedelta, timezone
-from dotenv import load_dotenv
-from database_manager import create_database, save_price, save_signal
+    shares_by_position_cap = math.floor(max_position_dollars / close)
+    shares_by_total_cap = math.floor(remaining_exposure / close)
+    shares_by_buying_power = math.floor(available_cash_budget / close)
+    quantity = min(shares_by_risk, shares_by_position_cap, shares_by_total_cap, shares_by_buying_power)
 
-load_dotenv()
+    if quantity < 1:
+        print(f"{symbol}: BUY BLOCKED — risk/position/exposure budget allows fewer than 1 share.")
+        save_bot_signal(symbol, datetime.now(timezone.utc).isoformat(), "BLOCKED", "Position sizing returned fewer than one share")
+        return exposure, open_position_count, False
 
-create_database()
-
-# =========================
-# ENV VARIABLES
-# =========================
-BASE_URL = os.environ.get(
-    "GETRICH_BASE_URL",
-    "https://paper-api.alpaca.markets"
-)
-
-DATA_URL = os.environ.get(
-    "GETRICH_DATA_URL",
-    "https://data.alpaca.markets"
-)
-
-API_KEY = os.environ.get("GETRICH_API_KEY") or os.environ.get("API_KEY")
-API_SECRET = os.environ.get("GETRICH_API_SECRET") or os.environ.get("API_SECRET")
-
-# =========================
-# SYMBOLS TO TRADE
-# =========================
-SYMBOLS = [
-    "AAPL",   # Apple
-    "MSFT",   # Microsoft
-    "GOOGL",  # Google
-    "AMZN",   # Amazon
-    "NVDA",   # Nvidia
-    "TSLA",   # Tesla
-    "META",   # Meta
-    "SPY",    # S&P 500 ETF
-]
-
-# =========================
-# VERIFY ENV
-# =========================
-print("BASE_URL =", BASE_URL)
-print("DATA_URL =", DATA_URL)
-
-if not API_KEY or not API_SECRET:
-    raise ValueError("API_KEY or API_SECRET not set")
-
-# =========================
-# HELPERS
-# =========================
-def average(lst):
-    return sum(lst) / len(lst)
-
-
-# =========================
-# GET HISTORICAL DAILY PRICES
-# =========================
-def get_historical_prices(symbol):
-
-    # Get about 400 calendar days of data
-    # This gives us enough trading days for the 250-day moving average.
-    end = datetime.now(timezone.utc).replace(microsecond=0)
-    start = end - timedelta(days=400)
-
-    # RFC3339 format
-    start_str = start.isoformat().replace("+00:00", "Z")
-    end_str = end.isoformat().replace("+00:00", "Z")
-
-    # Get ONE bar per trading day
-    url = (
-        f"{DATA_URL}/v2/stocks/{symbol}/bars"
-        f"?timeframe=1Day"
-        f"&feed=iex"
-        f"&start={start_str}"
-        f"&end={end_str}"
+    stop_price = close - stop_distance
+    target_price = close + ATR_TARGET_MULTIPLE * atr
+    entry_limit = close * 1.003  # Do not chase an opening gap more than 0.3% above the signal close.
+    estimated_notional = quantity * entry_limit
+    reason = (
+        f"50/200-day golden cross; {quantity} shares; limit entry ${entry_limit:.2f}; "
+        f"planned stop ${stop_price:.2f}; "
+        f"target ${target_price:.2f}; estimated notional ${estimated_notional:.2f}"
     )
 
-    print(f"  Requesting daily bars URL: {url}")
-
-    headers = {
-        "APCA-API-KEY-ID": API_KEY,
-        "APCA-API-SECRET-KEY": API_SECRET
-    }
-
-    req = urllib.request.Request(url, headers=headers)
-
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-
-            data = json.loads(response.read().decode())
-
-            bars = data.get("bars", [])
-
-            print(f"  Loaded {len(bars)} historical daily bars")
-
-            # =========================
-            # SAVE HISTORICAL DATA
-            # =========================
-            for bar in bars:
-                save_price(
-                    ticker=symbol,
-                    recorded_at=str(bar["t"]),
-                    price=float(bar["c"]),
-                )
-
-            print(f"  Saved {len(bars)} daily prices to database")
-
-            # Return the daily closing prices
-            return [float(bar["c"]) for bar in bars]
-
-    except urllib.error.HTTPError as e:
-
-        body = e.read().decode()
-
-        print(f"  HTTPError {e.code} fetching daily bars:")
-        print(body)
-
-        raise
-
-    except urllib.error.URLError as e:
-
-        print(f"  URL error fetching daily bars for {symbol}: {e}")
-
-        raise
-
-    except TimeoutError:
-
-        print(f"  Timeout fetching historical daily bars for {symbol}")
-
-        raise
-
-
-# =========================
-# GET LATEST PRICE
-# =========================
-def get_price(symbol):
-
-    url = (
-        f"{DATA_URL}/v2/stocks/"
-        f"{symbol}/quotes/latest?feed=iex"
-    )
-
-    print(f"  Requesting latest quote URL: {url}")
-
-    headers = {
-        "APCA-API-KEY-ID": API_KEY,
-        "APCA-API-SECRET-KEY": API_SECRET
-    }
-
-    req = urllib.request.Request(url, headers=headers)
-
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-
-            data = json.loads(response.read().decode())
-
-            return data["quote"]["ap"]
-
-    except urllib.error.HTTPError as e:
-
-        body = e.read().decode()
-
-        print(f"  HTTPError {e.code} fetching quote:")
-        print(body)
-
-        raise
-
-    except urllib.error.URLError as e:
-
-        print(f"  URL error fetching latest quote for {symbol}: {e}")
-
-        raise
-
-    except TimeoutError:
-
-        print(f"  Timeout fetching latest price for {symbol}")
-
-        raise
-
-
-# =========================
-# GET CURRENT POSITION
-# =========================
-def get_position(symbol):
-
-    url = f"{BASE_URL}/v2/positions/{symbol}"
-
-    headers = {
-        "APCA-API-KEY-ID": API_KEY,
-        "APCA-API-SECRET-KEY": API_SECRET
-    }
-
-    req = urllib.request.Request(url, headers=headers)
-
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-
-            data = json.loads(response.read().decode())
-
-            qty = int(float(data["qty"]))
-            avg_price = float(data["avg_entry_price"])
-
-            return qty, avg_price
-
-    except urllib.error.HTTPError:
-        return 0, None
-
-
-# =========================
-# SEND ORDER
-# =========================
-def send_order(symbol, qty, side):
-
-    url = f"{BASE_URL}/v2/orders"
-
-    data = json.dumps({
-        "symbol": symbol,
-        "qty": qty,
-        "side": side,
-        "type": "market",
-        "time_in_force": "gtc"
-    }).encode("utf-8")
-
-    headers = {
-        "APCA-API-KEY-ID": API_KEY,
-        "APCA-API-SECRET-KEY": API_SECRET,
-        "Content-Type": "application/json"
-    }
-
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers=headers,
-        method="POST"
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-
-            result = response.read().decode()
-
-            print(f"  {side.upper()} order success:")
-            print(f"  {result}")
-
-    except Exception as e:
-
-        print(f"  Error placing {side} order:")
-        print(e)
-
-
-# =========================
-# TRADING LOGIC
-# =========================
-def trade(symbol, prices_list):
-
-    shares_held, buy_price = get_position(symbol)
-
-    print(f"  Current position: {shares_held} shares @ {buy_price}")
-
-    # Need at least 250 daily prices for the 250-day MA
-    if len(prices_list) < 250:
-
-        print(
-            f"  Not enough data to trade "
-            f"({len(prices_list)} daily prices, need 250)"
-        )
-
+    print(f"{symbol}: BUY PLAN — {reason}")
+    save_bot_signal(symbol, datetime.now(timezone.utc).isoformat(), "BUY", reason)
+
+    if EXECUTE_ORDERS:
+        result = submit_bracket_buy(symbol, quantity, entry_limit, stop_price, target_price)
+        print(f"{symbol}: bracket order submitted: {result.get('id', 'unknown order id')}")
+    else:
+        print(f"{symbol}: DRY RUN — no order submitted.")
+
+    return exposure + estimated_notional, open_position_count + 1, True
+
+
+def main():
+    print("=" * 68)
+    print("CONSERVATIVE DAILY SWING BOT")
+    print(f"Trading endpoint: {BASE_URL}")
+    print(f"Order execution enabled: {EXECUTE_ORDERS}")
+    print("=" * 68)
+
+    clock = get_market_clock()
+    if clock.get("is_open"):
+        print("Market is currently open. Skipping so incomplete daily bars are not used.")
         return
 
-    current_price = prices_list[-1]
+    account = get_account()
+    equity = float(account.get("equity", 0) or 0)
+    buying_power = float(account.get("buying_power", 0) or 0)
+    previous_equity = float(account.get("last_equity", 0) or 0)
+    if equity <= 0:
+        raise RuntimeError(f"Invalid account equity returned by Alpaca: {equity}")
 
-    # Use one timestamp for the saved signal
-    current_time = datetime.now(timezone.utc).isoformat()
+    daily_change = (equity - previous_equity) / previous_equity if previous_equity > 0 else 0.0
+    block_new_buys = daily_change <= -MAX_DAILY_LOSS_PCT
+    print(f"Account equity: ${equity:,.2f} | Buying power: ${buying_power:,.2f} | Daily change: {daily_change:.2%}")
+    if block_new_buys:
+        print("Daily loss guard is active: new buys are disabled for this run; existing positions can still exit.")
 
-    # =========================
-    # SELL ASAP (10% GAIN)
-    # =========================
-    if shares_held > 0 and buy_price is not None:
+    positions = get_positions()
+    open_orders = get_open_orders()
 
-        if current_price >= buy_price * 1.10:
+    latest_prices = {}
+    market_data = {}
+    for symbol in SYMBOLS:
+        try:
+            bars = get_historical_bars(symbol)
+            if not bars:
+                print(f"{symbol}: no historical bars returned.")
+                continue
+            market_data[symbol] = bars
+            latest_prices[symbol] = float(bars[-1]["c"])
+            for bar in bars:
+                save_price(ticker=symbol, recorded_at=str(bar["t"]), price=float(bar["c"]))
+        except Exception as exc:
+            print(f"{symbol}: data error — {exc}")
 
-            decision = "SELL"
-            reason = "10% gain target reached"
+    pending_buy_exposure, pending_buy_symbols = estimate_pending_buy_exposure(open_orders, latest_prices)
+    current_exposure = sum(abs(position["market_value"]) for position in positions.values())
+    exposure = current_exposure + pending_buy_exposure
+    open_position_symbols = set(positions) | pending_buy_symbols
+    open_position_count = len(open_position_symbols)
 
-            print("  SELL ASAP triggered (10% gain)")
+    print(f"Current long exposure: ${current_exposure:,.2f}")
+    print(f"Estimated pending buy exposure: ${pending_buy_exposure:,.2f}")
+    print(f"Total counted exposure: ${exposure:,.2f} / ${equity * MAX_TOTAL_EXPOSURE_PCT:,.2f} cap")
 
-            save_signal(
-                ticker=symbol,
-                recorded_at=current_time,
-                decision=decision,
-                reason=reason,
-            )
-
-            send_order(symbol, shares_held, "sell")
-
-            return
-
-    # =========================
-    # MOVING AVERAGES
-    # =========================
-    short_ma = average(prices_list[-50:])
-    long_ma = average(prices_list[-250:])
-
-    prev_short = average(prices_list[-51:-1])
-    prev_long = average(prices_list[-251:-1])
-
-    print(f"  Short MA: {short_ma:.4f}")
-    print(f"  Long MA:  {long_ma:.4f}")
-
-    # =========================
-    # BUY SIGNAL
-    # =========================
-    if (
-        prev_short <= prev_long
-        and short_ma > long_ma
-        and shares_held == 0
-    ):
-
-        decision = "BUY"
-        reason = "50-day moving average crossed above 250-day moving average"
-
-        print("  BUY signal (golden cross)")
-
-        save_signal(
-            ticker=symbol,
-            recorded_at=current_time,
-            decision=decision,
-            reason=reason,
-        )
-
-        send_order(symbol, 100, "buy")
-
-    # =========================
-    # SELL SIGNAL
-    # =========================
-    elif (
-        prev_short >= prev_long
-        and short_ma < long_ma
-        and shares_held > 0
-    ):
-
-        decision = "SELL"
-        reason = "50-day moving average crossed below 250-day moving average"
-
-        print("  SELL signal (death cross)")
-
-        save_signal(
-            ticker=symbol,
-            recorded_at=current_time,
-            decision=decision,
-            reason=reason,
-        )
-
-        send_order(symbol, shares_held, "sell")
-
-    # =========================
-    # WEAK TREND
-    # =========================
-    elif prev_long > long_ma:
-
-        decision = "BUY"
-        reason = "Long-term moving average is declining, so strategy makes a small BUY"
-
-        print("  Weak trend → small BUY (5 shares)")
-
-        save_signal(
-            ticker=symbol,
-            recorded_at=current_time,
-            decision=decision,
-            reason=reason,
-        )
-
-        send_order(symbol, 5, "buy")
-
-    # =========================
-    # HOLD
-    # =========================
-    else:
-
-        decision = "HOLD"
-        reason = "No trading condition was met"
-
-        print("  No action taken")
-
-        save_signal(
-            ticker=symbol,
-            recorded_at=current_time,
-            decision=decision,
-            reason=reason,
-        )
-
-
-# =========================
-# MAIN
-# =========================
-if __name__ == "__main__":
-
-    results = {"success": [], "failed": []}
+    state = load_state()
+    changed_state = False
 
     for symbol in SYMBOLS:
+        bars = market_data.get(symbol)
+        if not bars:
+            continue
 
-        print()
-        print(f"{'='*40}")
-        print(f"  Processing: {symbol}")
-        print(f"{'='*40}")
+        latest_bar_date = bar_date_et(bars[-1])
+        if EXECUTE_ORDERS and state["last_processed"].get(symbol) == latest_bar_date:
+            print(f"{symbol}: already processed completed bar for {latest_bar_date}; skipping duplicate run.")
+            continue
 
+        symbol_orders = get_symbol_open_orders(open_orders, symbol)
         try:
+            exposure, open_position_count, _ = evaluate_symbol(
+                symbol=symbol,
+                bars=bars,
+                account_equity=equity,
+                buying_power=buying_power,
+                exposure=exposure,
+                open_position_count=open_position_count,
+                position=positions.get(symbol),
+                open_orders_for_symbol=symbol_orders,
+                block_new_buys=block_new_buys,
+            )
+            if EXECUTE_ORDERS:
+                state["last_processed"][symbol] = latest_bar_date
+                changed_state = True
+        except Exception as exc:
+            print(f"{symbol}: trading logic error — {exc}")
 
-            prices = get_historical_prices(symbol)
+    if changed_state:
+        save_state(state)
 
-            latest_price = get_price(symbol)
+    print("=" * 68)
+    print("Run complete. Review Alpaca order status and the database signals before the next run.")
+    print("=" * 68)
 
-            prices.append(latest_price)
 
-            print(f"  Latest price: {latest_price}")
-            print(f"  Total daily prices loaded: {len(prices)}")
-
-            trade(symbol, prices)
-
-            results["success"].append(symbol)
-
-        except Exception as e:
-
-            print(f"  Error processing {symbol}: {e}")
-
-            results["failed"].append(symbol)
-
-    # =========================
-    # SUMMARY
-    # =========================
-    print()
-    print("=" * 40)
-    print("  RUN SUMMARY")
-    print("=" * 40)
-    print(f"  Succeeded: {', '.join(results['success']) or 'None'}")
-    print(f"  Failed:    {', '.join(results['failed']) or 'None'}")
-    print("=" * 40)
+if __name__ == "__main__":
+    main()
