@@ -1,14 +1,14 @@
-name: Run Trading Bot
+name: Test Trading Bot
 
 on:
   workflow_dispatch:
 
 jobs:
-  trade:
+  test-bot:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -16,10 +16,26 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install python-dotenv
+
+      - name: Check Python syntax
+        run: python -m py_compile project.py
+
+      - name: Verify required secrets
+        env:
+          GETRICH_API_KEY: ${{ secrets.GETRICH_API_KEY }}
+          GETRICH_API_SECRET: ${{ secrets.GETRICH_API_SECRET }}
+        run: |
+          python -c "import os; assert os.getenv('GETRICH_API_KEY'), 'Missing API key'; assert os.getenv('GETRICH_API_SECRET'), 'Missing API secret'; print('API credentials detected')"
+
       - name: Run trading bot
         env:
           GETRICH_API_KEY: ${{ secrets.GETRICH_API_KEY }}
           GETRICH_API_SECRET: ${{ secrets.GETRICH_API_SECRET }}
-          GETRICH_BASE_URL: ${{ secrets.GETRICH_BASE_URL }}
-          GETRICH_DATA_URL: ${{ secrets.GETRICH_DATA_URL }}
-        run: python project.py
+          GETRICH_BASE_URL: https://paper-api.alpaca.markets
+          GETRICH_DATA_URL: https://data.alpaca.markets
+          EXECUTE_ORDERS: "false"
+        run: python -u project.py
