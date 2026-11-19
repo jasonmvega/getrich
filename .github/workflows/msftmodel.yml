@@ -29,11 +29,11 @@ jobs:
 
       - name: Run Linear Regression
         env:
-          GETRICH_API_KEY: ${{ secrets.GETRICH_API_KEY }}
-          GETRICH_API_SECRET: ${{ secrets.GETRICH_API_SECRET }}
+          API_KEY: ${{ secrets.API_KEY }}
+          API_SECRET: ${{ secrets.API_SECRET }}
           ALPACA_DATA_FEED: iex
         run: |
-          python linearregressionmodelcomplete.py
+          python linearregressionmodelcompletee.py
 
       - name: Save prediction results
         run: |
