@@ -1,34 +1,45 @@
-name: Run Trading Script 5x Daily
+name: Run Hybrid Trading Bot 5x Daily
 
 on:
   schedule:
-    # Five times a day at 10:00, 12:00, 14:00, 16:00, 18:00 UTC
-    - cron: '0 10,12,14,16,18 * * *'
+    # Central Standard Time (winter): 9:00, 10:30, 12:00, 13:30, 14:45 CT
+    # During daylight saving time, move each UTC time one hour earlier.
+    - cron: '0 15 * * 1-5'
+    - cron: '30 16 * * 1-5'
+    - cron: '0 18 * * 1-5'
+    - cron: '30 19 * * 1-5'
+    - cron: '45 20 * * 1-5'
+  workflow_dispatch:
+
+# Prevent overlapping evaluations if GitHub queues a delayed scheduled run.
+concurrency:
+  group: hybrid-trading-bot
+  cancel-in-progress: false
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 10
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.14'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        # No external dependencies needed for your current script
-        # If you add dependencies later, list them here, e.g.,
-        # pip install requests
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install python-dotenv
 
-    - name: Run trading script
-      env:
-        GETRICH_API_KEY: ${{ secrets.GETRICH_API_KEY }}
-        GETRICH_API_SECRET: ${{ secrets.GETRICH_API_SECRET }}
-        GETRICH_BASE_URL: ${{ secrets.GETRICH_BASE_URL }}
-        GETRICH_DATA_URL: ${{ secrets.GETRICH_DATA_URL }}
-      run: python ./project.py
+      - name: Run hybrid paper bot (paper orders enabled)
+        env:
+          GETRICH_API_KEY: ${{ secrets.GETRICH_API_KEY }}
+          GETRICH_API_SECRET: ${{ secrets.GETRICH_API_SECRET }}
+          GETRICH_BASE_URL: ${{ secrets.GETRICH_BASE_URL }}
+          GETRICH_DATA_URL: ${{ secrets.GETRICH_DATA_URL }}
+          ALPACA_DATA_FEED: iex
+          EXECUTE_ORDERS: 'true'
+        run: python ./project_hybrid.py
