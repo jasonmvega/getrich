@@ -33,7 +33,7 @@ jobs:
           GETRICH_API_SECRET: ${{ secrets.GETRICH_API_SECRET }}
           ALPACA_DATA_FEED: iex
         run: |
-          python paper_model.py
+          python linearregressionmodelcomplete.py
 
       - name: Save prediction results
         run: |
