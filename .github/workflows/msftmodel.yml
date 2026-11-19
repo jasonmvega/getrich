@@ -3,8 +3,9 @@ name: Daily MSFT Linear Regression
 
 on:
   workflow_dispatch:
+
   schedule:
-    - cron: "0 16 * * 1-5"
+    - cron: "0 14 * * 1-5"
 
 permissions:
   contents: write
@@ -16,25 +17,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Check repository files
-        run: |
-          echo "CURRENT DIRECTORY:"
-          pwd
-
-          echo "ROOT FILES:"
-          ls -la
-
-          echo "PYTHON FILES:"
-          find . -type f -name "*.py"
-
-          echo "CHECKING MODEL:"
-          if [ -f "linearregressionmodelcomplete.py" ]; then
-            echo "SUCCESS: Model file found."
-          else
-            echo "ERROR: Model file not found in repository root."
-            exit 1
-          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,8 +31,9 @@ jobs:
         env:
           API_KEY: ${{ secrets.API_KEY }}
           API_SECRET: ${{ secrets.API_SECRET }}
-          ALPACA_DATA_FEED: ${{ vars.ALPACA_DATA_FEED }}
-        run: python linearregressionmodelcomplete.py
+          ALPACA_DATA_FEED: iex
+        run: |
+          python linearregressionmodelcompletee.py
 
       - name: Save prediction results
         run: |
