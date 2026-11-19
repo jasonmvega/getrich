@@ -1,0 +1,48 @@
+
+name: Daily MSFT Linear Regression
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "0 14 * * 1-5"
+
+permissions:
+  contents: write
+
+jobs:
+  run-model:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install pandas numpy scikit-learn requests
+
+      - name: Run Linear Regression
+        env:
+          GETRICH_API_KEY: ${{ secrets.GETRICH_API_KEY }}
+          GETRICH_API_SECRET: ${{ secrets.GETRICH_API_SECRET }}
+          ALPACA_DATA_FEED: iex
+        run: |
+          python paper_model.py
+
+      - name: Save prediction results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add results/msft_predictions.csv
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Daily MSFT model results"
+            git push
+          fi
