@@ -1,0 +1,411 @@
+
+import os
+import time
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import requests
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+SYMBOL = "MSFT"
+
+DATA_FILE = Path("data/msft_2024_5min.csv")
+RESULTS_DIR = Path("results")
+RESULTS_FILE = RESULTS_DIR / "msft_predictions.csv"
+
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
+
+DATA_FEED = os.getenv("ALPACA_DATA_FEED", "iex")
+
+BASE_URL = "https://data.alpaca.markets/v2/stocks"
+
+FEATURES = [
+    "return_1",
+    "range_percent"
+]
+
+FLAT_THRESHOLD = 0.01
+
+
+# ============================================================
+# ALPACA DATA
+# ============================================================
+
+def get_latest_bars():
+
+    if not API_KEY or not API_SECRET:
+        raise ValueError("Missing Alpaca API credentials.")
+
+    url = f"{BASE_URL}/{SYMBOL}/bars"
+
+    headers = {
+        "APCA-API-KEY-ID": API_KEY,
+        "APCA-API-SECRET-KEY": API_SECRET
+    }
+
+    params = {
+        "timeframe": "5Min",
+        "limit": 1000,
+        "feed": DATA_FEED
+    }
+
+    all_bars = []
+    page_token = None
+
+    for _ in range(10):
+
+        if page_token:
+            params["page_token"] = page_token
+        else:
+            params.pop("page_token", None)
+
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        all_bars.extend(data.get("bars", []))
+
+        page_token = data.get("next_page_token")
+
+        if not page_token:
+            break
+
+    if not all_bars:
+        raise ValueError("Alpaca returned no market bars.")
+
+    df = pd.DataFrame(all_bars)
+
+    df = df.rename(columns={
+        "t": "ts_utc",
+        "o": "open",
+        "h": "high",
+        "l": "low",
+        "c": "close",
+        "v": "volume"
+    })
+
+    df["ts_utc"] = pd.to_datetime(
+        df["ts_utc"],
+        utc=True
+    )
+
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.sort_values("ts_utc")
+    df = df.drop_duplicates(subset="ts_utc")
+    df = df.reset_index(drop=True)
+
+    return df
+
+
+# ============================================================
+# FEATURE ENGINEERING
+# ============================================================
+
+def create_features(df):
+
+    df = df.copy()
+
+    df["return_1"] = (
+        df["close"].pct_change(1) * 100
+    )
+
+    df["range_percent"] = (
+        (df["high"] - df["low"]) /
+        df["close"] * 100
+    )
+
+    return df
+
+
+# ============================================================
+# LOAD HISTORICAL TRAINING DATA
+# ============================================================
+
+def load_training_data():
+
+    if not DATA_FILE.exists():
+        raise FileNotFoundError(
+            f"Training data not found: {DATA_FILE}"
+        )
+
+    df = pd.read_csv(DATA_FILE)
+
+    required = [
+        "ts_utc",
+        "high",
+        "low",
+        "close"
+    ]
+
+    for col in required:
+        if col not in df.columns:
+            raise ValueError(
+                f"Training CSV is missing column: {col}"
+            )
+
+    df["ts_utc"] = pd.to_datetime(
+        df["ts_utc"],
+        utc=True
+    )
+
+    for col in ["high", "low", "close"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.sort_values("ts_utc")
+    df = df.drop_duplicates(subset="ts_utc")
+    df = df.reset_index(drop=True)
+
+    # Calculate features
+    df = create_features(df)
+
+    # Three 5-minute bars = 15 minutes
+    df["future_close"] = df["close"].shift(-3)
+    df["future_ts"] = df["ts_utc"].shift(-3)
+
+    # Calculate future percentage change
+    df["target"] = (
+        (df["future_close"] - df["close"]) /
+        df["close"] * 100
+    )
+
+    # Only retain observations exactly 15 minutes apart
+    valid_gap = (
+        df["future_ts"] - df["ts_utc"]
+        == pd.Timedelta(minutes=15)
+    )
+
+    df = df.loc[valid_gap].copy()
+
+    df = df.dropna(
+        subset=FEATURES + ["target"]
+    )
+
+    if len(df) < 100:
+        raise ValueError(
+            "Not enough valid historical training observations."
+        )
+
+    return df
+
+
+# ============================================================
+# TRAIN LINEAR REGRESSION
+# ============================================================
+
+def train_model():
+
+    df = load_training_data()
+
+    X = df[FEATURES]
+    y = df["target"]
+
+    model = LinearRegression()
+    model.fit(X, y)
+
+    print("\nMODEL TRAINING")
+    print("------------------------------")
+    print(f"Training observations: {len(df)}")
+    print(f"Features: {FEATURES}")
+    print(f"Intercept: {model.intercept_:.8f}")
+
+    for feature, coefficient in zip(
+        FEATURES,
+        model.coef_
+    ):
+        print(f"{feature}: {coefficient:.8f}")
+
+    # These are training-set diagnostics, not test results.
+    training_predictions = model.predict(X)
+
+    print(
+        "Training MAE:",
+        round(mean_absolute_error(y, training_predictions), 6)
+    )
+
+    print(
+        "Training RMSE:",
+        round(np.sqrt(mean_squared_error(y, training_predictions)), 6)
+    )
+
+    print(
+        "Training R²:",
+        round(r2_score(y, training_predictions), 6)
+    )
+
+    return model
+
+
+# ============================================================
+# PREDICT FUTURE MOVEMENT
+# ============================================================
+
+def make_prediction(model):
+
+    bars = get_latest_bars()
+
+    bars = create_features(bars)
+
+    latest = bars.dropna(
+        subset=FEATURES
+    ).iloc[-1]
+
+    bar_time = latest["ts_utc"]
+
+    # Avoid predictions based on stale market data
+    now = pd.Timestamp.now(tz="UTC")
+
+    age_minutes = (
+        now - bar_time
+    ).total_seconds() / 60
+
+    if age_minutes > 30:
+        raise ValueError(
+            f"Latest bar is stale ({age_minutes:.1f} minutes old). "
+            "Try running during market hours."
+        )
+
+    X_latest = pd.DataFrame(
+        [latest[FEATURES].to_dict()],
+        columns=FEATURES
+    )
+
+    predicted_change = float(
+        model.predict(X_latest)[0]
+    )
+
+    predicted_future_price = (
+        float(latest["close"]) *
+        (1 + predicted_change / 100)
+    )
+
+    if predicted_change > FLAT_THRESHOLD:
+        direction = "UP"
+
+    elif predicted_change < -FLAT_THRESHOLD:
+        direction = "DOWN"
+
+    else:
+        direction = "FLAT"
+
+    target_time = bar_time + pd.Timedelta(minutes=15)
+
+    result = {
+        "symbol": SYMBOL,
+        "prediction_time_utc": now.isoformat(),
+        "bar_time_utc": bar_time.isoformat(),
+        "target_time_utc": target_time.isoformat(),
+        "current_close": float(latest["close"]),
+        "predicted_change_percent": predicted_change,
+        "predicted_future_price": predicted_future_price,
+        "direction": direction,
+        "actual_future_change_percent": np.nan,
+        "prediction_error": np.nan
+    }
+
+    return result
+
+
+# ============================================================
+# SAVE AND UPDATE PREDICTIONS
+# ============================================================
+
+def save_prediction(result):
+
+    RESULTS_DIR.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    new_row = pd.DataFrame([result])
+
+    if RESULTS_FILE.exists():
+
+        old_results = pd.read_csv(RESULTS_FILE)
+
+        # Prevent duplicate predictions for the same bar
+        if "bar_time_utc" in old_results.columns:
+
+            if (
+                old_results["bar_time_utc"]
+                .astype(str)
+                .eq(result["bar_time_utc"])
+                .any()
+            ):
+                print(
+                    "\nA prediction already exists for this bar."
+                )
+                return
+
+        results = pd.concat(
+            [old_results, new_row],
+            ignore_index=True
+        )
+
+    else:
+        results = new_row
+
+    results.to_csv(
+        RESULTS_FILE,
+        index=False
+    )
+
+    print("\nPREDICTION SAVED")
+    print("------------------------------")
+    print(f"Direction: {result['direction']}")
+    print(
+        "Predicted change:",
+        f"{result['predicted_change_percent']:.6f}%"
+    )
+    print(
+        "Current close:",
+        f"${result['current_close']:.2f}"
+    )
+    print(
+        "Predicted future price:",
+        f"${result['predicted_future_price']:.2f}"
+    )
+    print(f"Target time: {result['target_time_utc']}")
+    print(f"Saved to: {RESULTS_FILE}")
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    print("MSFT LINEAR REGRESSION MODEL")
+    print("==============================")
+
+    print("\nTraining model...")
+
+    model = train_model()
+
+    print("\nRetrieving latest Alpaca market data...")
+
+    prediction = make_prediction(model)
+
+    save_prediction(prediction)
+
+    print("\nModel run completed successfully.")
+
+
+if __name__ == "__main__":
+    main()
